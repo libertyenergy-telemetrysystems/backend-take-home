@@ -1,0 +1,14 @@
+# Generated data — candidates run generate_csv.py themselves
+data/telemetry.csv
+
+# Interviewer-only files — never share with candidates
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store

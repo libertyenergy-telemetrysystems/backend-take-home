@@ -1,0 +1,80 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: interview_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: interview
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: interview
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d interview"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  influxdb:
+    image: influxdb:3-core
+    container_name: interview_influxdb
+    ports:
+      - "8181:8181"
+    command:
+      - influxdb3
+      - serve
+      - --node-id=interview-node
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3/data
+      - --without-auth
+    volumes:
+      - influxdb_data:/var/lib/influxdb3/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: interview_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    container_name: interview_simulator
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    environment:
+      INFLUX_HOST: "http://influxdb:8181"
+      INFLUX_DATABASE: "engine_telemetry"
+      INFLUX_TOKEN: "interview-token-dev-only-do-not-use-in-production"
+      CSV_FILE: "/data/telemetry.csv"
+      # How many minutes of CSV data to replay per tick
+      CHUNK_MINUTES: "${CHUNK_MINUTES:-30}"
+      # How many seconds to wait between ticks
+      TICK_INTERVAL_SECONDS: "${TICK_INTERVAL_SECONDS:-60}"
+    volumes:
+      - ./data:/data:ro
+
+volumes:
+  influxdb_data:
+  postgres_data:
