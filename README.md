@@ -141,11 +141,15 @@ All data lives in a single InfluxDB measurement: `engine_telemetry`
 | `time` | timestamp | Reading timestamp (UTC) |
 | `engine_id` | string | Engine identifier — `ENG-001` through `ENG-010` |
 | `location` | string | Site name — `Site-Alpha`, `Site-Bravo`, or `Site-Charlie` |
-| `rpm` | float | Engine RPM |
-| `oil_temp` | float | Oil temperature (°C) |
-| `fuel_level` | float | Fuel level (0–100%) |
+| `rpm` | float | Engine RPM — value on every row |
+| `fuel_rate` | float | Fuel consumption (gph) — value on every row; ~5 gph at idle, ~60 gph at operating speed |
+| `oil_temp` | float | Oil temperature (°C) — sparse: emitted at most every ~2 minutes |
+| `fuel_level` | float | Fuel level (0–100%) — sparse: emitted at most every ~2 minutes |
 
 10 engines, 3 sites, one reading per engine every 5 seconds, covering 24 hours.
+`rpm` and `fuel_rate` are present on every row. `oil_temp` and `fuel_level` are
+sparse — most rows have no value for these columns; queries should account for
+gaps (e.g. `WHERE oil_temp IS NOT NULL`).
 
 **Starter queries:**
 
@@ -154,7 +158,7 @@ All data lives in a single InfluxDB measurement: `engine_telemetry`
 SELECT DISTINCT engine_id, location FROM engine_telemetry ORDER BY engine_id;
 
 -- Latest readings for a specific engine
-SELECT time, rpm, oil_temp, fuel_level
+SELECT time, rpm, fuel_rate, oil_temp, fuel_level
 FROM engine_telemetry
 WHERE engine_id = 'ENG-001'
 ORDER BY time DESC

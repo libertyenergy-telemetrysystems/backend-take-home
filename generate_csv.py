@@ -8,6 +8,12 @@ Produces realistic RPM traces for 10 engines across 3 sites, with a
 controlled number of early shutdown events (throttle drop from >1000 RPM
 to ~700 RPM) baked in at known times so the answer key is verifiable.
 
+Channel update rates:
+  rpm, fuel_rate — fast channels, value on every row (every 5 seconds)
+  oil_temp, fuel_level — slow channels, sparse: NaN on most rows, a reading
+                         emitted at most every ~2 minutes (24-row heartbeat
+                         with ±2-row jitter).
+
 Output: ./data/telemetry.csv
 
 Usage:
@@ -67,6 +73,10 @@ SHUTDOWN_EVENTS = [
 # How long a shutdown event lasts (seconds) before RPM recovers
 SHUTDOWN_DURATION_SECONDS = 240  # 4 minutes
 
+# Slow-channel heartbeat: emit oil_temp / fuel_level at most every N rows
+# 24 rows × 5 s/row = 120 s = 2 minutes
+SLOW_EMIT_INTERVAL = 24
+
 
 # ---------------------------------------------------------------------------
 # Engine state machine
@@ -80,17 +90,23 @@ def generate_engine_trace(
     rng: np.random.Generator,
 ) -> pd.DataFrame:
     """
-    Generate a realistic RPM trace for one engine over the full time range.
+    Generate a realistic telemetry trace for one engine over the full time range.
 
-    Normal operation: RPM floats between 1050–1400 with smooth noise.
-    Shutdown event: RPM ramps down to ~680–740 over ~30s, holds for the
-    shutdown duration, then ramps back up.
-    Oil temp and fuel level are correlated with RPM for realism.
+    Fast channels (every row):
+      rpm      — floats 1050–1400 in normal operation; drops to ~700 during shutdown
+      fuel_rate — ~5 gph at 700 RPM, ~60 gph at operating speeds, with small noise
+
+    Slow channels (sparse — NaN on most rows, value every ~2 minutes):
+      oil_temp   — rises slightly when RPM is low
+      fuel_level — drains slowly over the day
+
+    Shutdown event: RPM ramps down to ~680–740 over ~30 s, holds, then ramps back up.
     """
     n = len(timestamps)
     rpm = np.zeros(n)
-    oil_temp = np.zeros(n)
-    fuel_level = np.zeros(n)
+    fuel_rate = np.zeros(n)
+    oil_temp = np.full(n, np.nan)
+    fuel_level = np.full(n, np.nan)
 
     # Baseline operating RPM for this engine (slight variance per engine)
     base_rpm = rng.uniform(1100, 1300)
@@ -113,6 +129,9 @@ def generate_engine_trace(
     current_rpm = base_rpm
     current_oil = base_oil
     current_fuel = fuel_start
+
+    # Next row index at which to emit slow-channel values
+    next_slow_emit = 0
 
     for i in range(n):
         is_down, s_start, s_end = in_shutdown(i)
@@ -146,15 +165,26 @@ def generate_engine_trace(
         fuel_drain = (0.0005 + 0.0002 * rpm_factor) * INTERVAL_SECONDS
         current_fuel = max(0.0, current_fuel - fuel_drain + rng.normal(0, 0.01))
 
+        # --- Fast channels: value on every row ---
         rpm[i] = round(float(current_rpm), 2)
-        oil_temp[i] = round(current_oil, 2)
-        fuel_level[i] = round(float(np.clip(current_fuel, 0, 100)), 2)
+
+        # fuel_rate: ~5 gph at 700 RPM, ~60 gph at 1200 RPM (operating speed)
+        fuel_rate_base = 5.0 + max(0.0, current_rpm - 700.0) * 0.11
+        fuel_rate[i] = round(float(np.clip(fuel_rate_base * (1.0 + rng.normal(0, 0.05)), 0.0, 70.0)), 2)
+
+        # --- Slow channels: heartbeat every SLOW_EMIT_INTERVAL rows ±2 jitter ---
+        if i >= next_slow_emit:
+            oil_temp[i] = round(current_oil, 2)
+            fuel_level[i] = round(float(np.clip(current_fuel, 0, 100)), 2)
+            jitter = int(rng.integers(-2, 3))
+            next_slow_emit = i + SLOW_EMIT_INTERVAL + jitter
 
     return pd.DataFrame({
         "timestamp": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in timestamps],
         "engine_id": engine_id,
         "location": location,
         "rpm": rpm,
+        "fuel_rate": fuel_rate,
         "oil_temp": oil_temp,
         "fuel_level": fuel_level,
     })

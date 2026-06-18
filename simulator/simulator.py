@@ -24,9 +24,10 @@ Expected CSV columns:
   timestamp   — ISO 8601 datetime string, e.g. 2024-01-15T08:00:00Z
   engine_id   — string identifier, e.g. ENG-001
   location    — site name, e.g. Site-Alpha
-  rpm         — float, engine RPM
-  oil_temp    — float, oil temperature in Celsius
-  fuel_level  — float, fuel percentage 0-100
+  rpm         — float, engine RPM (present on every row)
+  fuel_rate   — float, fuel consumption in gph (present on every row)
+  oil_temp    — float, oil temperature in Celsius (sparse — NaN on most rows)
+  fuel_level  — float, fuel percentage 0-100 (sparse — NaN on most rows)
 """
 
 import os
@@ -58,7 +59,7 @@ TICK_INTERVAL_SECONDS = int(os.environ.get("TICK_INTERVAL_SECONDS", "60"))
 
 MEASUREMENT = "engine_telemetry"
 TAG_COLUMNS = ["engine_id", "location"]
-FIELD_COLUMNS = ["rpm", "oil_temp", "fuel_level"]
+FIELD_COLUMNS = ["rpm", "fuel_rate", "oil_temp", "fuel_level"]
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@ def load_csv(path: str) -> pd.DataFrame:
     log.info(f"Loading CSV from {path}")
     df = pd.read_csv(path)
 
-    required = {"timestamp", "engine_id", "location", "rpm", "oil_temp", "fuel_level"}
+    required = {"timestamp", "engine_id", "location", "rpm", "fuel_rate", "oil_temp", "fuel_level"}
     missing = required - set(df.columns)
     if missing:
         log.error(f"CSV is missing required columns: {missing}")
@@ -100,7 +101,15 @@ def rows_to_line_protocol(chunk: pd.DataFrame) -> list[str]:
         location = str(row.location).replace(" ", "\\ ").replace(",", "\\,")
 
         tags = f"engine_id={engine_id},location={location}"
-        fields = f"rpm={float(row.rpm)},oil_temp={float(row.oil_temp)},fuel_level={float(row.fuel_level)}"
+
+        # Fast channels are present on every row
+        fields = f"rpm={float(row.rpm)},fuel_rate={float(row.fuel_rate)}"
+
+        # Slow channels are sparse — only include when not NaN
+        if not pd.isna(row.oil_temp):
+            fields += f",oil_temp={float(row.oil_temp)}"
+        if not pd.isna(row.fuel_level):
+            fields += f",fuel_level={float(row.fuel_level)}"
 
         lines.append(f"{MEASUREMENT},{tags} {fields} {ts_ns}")
     return lines
