@@ -12,7 +12,6 @@ application against it.
 |---|---|
 | **InfluxDB 3 Core** | Time-series database receiving telemetry from 10 industrial engines across 3 sites |
 | **Simulator** | Replays a 24-hour telemetry dataset into InfluxDB at an accelerated rate so data arrives continuously while you work |
-| **PostgreSQL** | Empty SQL database for your application to write results into |
 | **Grafana** | Pre-wired to InfluxDB at `http://localhost:3000` so you can explore the data visually |
 
 ---
@@ -44,7 +43,7 @@ data — keep that output handy.
 docker compose up
 ```
 
-All four containers start automatically. The simulator begins writing data to
+All three containers start automatically. The simulator begins writing data to
 InfluxDB immediately and logs its progress to the console.
 
 To run in the background instead:
@@ -90,29 +89,6 @@ curl -G "http://localhost:8181/api/v3/query_sql" \
   --data-urlencode "db=engine_telemetry" \
   --data-urlencode "q=SELECT COUNT(*) FROM engine_telemetry" \
   --data-urlencode "format=pretty"
-```
-
----
-
-## PostgreSQL
-
-Your application writes its results here.
-
-| Setting | Value |
-|---|---|
-| Host | `localhost` |
-| Port | `5432` |
-| Database | `interview` |
-| User | `postgres` |
-| Password | `interview` |
-
-The database starts completely empty — designing and creating your schema is
-part of the project.
-
-**Verify it's reachable:**
-
-```bash
-psql "postgresql://postgres:interview@localhost:5432/interview" -c "SELECT 1;"
 ```
 
 ---
@@ -194,7 +170,11 @@ Build a **separate application** (outside this repo) that:
 1. Connects to the InfluxDB instance above
 2. Queries the engine telemetry on a schedule
 3. Detects engine events from the RPM data
-4. Writes confirmed events to the PostgreSQL database
+4. Persists confirmed events to a database of your choice
+
+The choice of database is entirely yours — pick whatever fits your design and
+spin it up as part of your own application. This repo only provides the
+telemetry infrastructure above.
 
 Refer to the project brief you received for the full event definition, required
 output schema, and deliverables.
